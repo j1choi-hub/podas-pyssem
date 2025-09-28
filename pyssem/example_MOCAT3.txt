@@ -1,0 +1,249 @@
+MAIN FUNCTION
+
+N_shell = 20; 
+h_min = 200; % initial altitude [km]
+h_max = 900; % final altitude [km] 
+R0=linspace(h_min,h_max,N_shell+1);
+R02=linspace(h_min,h_max,N_shell+1);
+deltaH=R02(2)-R02(1); % thickness of the shell [km]
+re = 6378.1; % [km]
+years_s = 365*24*3600; % conversion between years and seconds
+
+mu_km=398600.4418;% earth gravitational parameters [km^3/s^2]
+mu=3.986004418e14;% [meters^3/s^2]
+R0=(re+R0)*1000; % [m^3]
+V=4/3*pi*(diff(R0.^3)); % volume of the shells [m^3]
+
+%% physical characteristics
+mass      = [223 223 0.640];      % median mass values [kg] 
+A         = [1.741 1.741 0.020]; % median area values [m^2]
+diameter  = [1.490 1.490 0.180]; % median diameter values [m] 
+Cd = 2.2; % drag coefficient
+n_obj = length(mass);
+radii = diameter/2;
+area_mass = A./mass; % area/mass ratio  [# object types]
+beta = Cd*area_mass; % ballistic coefficient [# object types]
+
+v_imp = 10; % impact velocity [km/s]
+LC = 0.1; % minimum size of fragments [m]
+n_f_catastrophic = @(M1,M2) 0.1*LC^(-1.71)*(M1+M2)^(0.75); % number of fragments generated during a catastrophic collision (NASA standard break-up model). M is the sum of the mass of the objects colliding in kg
+n_f_damaging = @(M1,M2) 0.1*LC^(-1.71)*(min(M1,M2)*v_imp^2)^(0.75); % number of fragments generated during a non-catastrophic collision (improved NASA standard break-up model: takes into account the kinetic energy). M is the mass of the less massive object colliding in kg
+K0 = zeros(n_obj,n_obj); % number of fragments generated in each collisions among the species for each altitude bin
+ind_obj_catastrophic = 2; % hypothesis of catastrophic collisions only between satellites and derelict satellites
+sigma = zeros(n_obj,n_obj);
+for q = 1:length(radii)
+    mass_q = mass(q);
+    for qq = 1:length(radii)
+        sigma(q,qq) = (radii(q)+radii(qq))^2;
+        mass_qq = mass(qq);
+        if q<=ind_obj_catastrophic && qq<=ind_obj_catastrophic
+            K0(q,qq) = n_f_catastrophic(mass_q,mass_qq); % catastrophic collision
+        else
+            K0(q,qq) = n_f_damaging(mass_q,mass_qq); % (non-catastrophic) damaging collision
+        end
+    end
+end
+
+mu_S=650;sig_S=300^2;S0=850;
+mu_D=450;sig_D=300^2;D0=125;
+mu_N=300;sig_N=150^2;N0=400;
+mu_lam=350;sig_lam=300^2;lam0=1000; 
+
+%% start computation
+
+options_ode = odeset('reltol', 1.e-4,'abstol', 1.e-4);
+Si=S0*exp(-(R02(2:end)-mu_S).^2/sig_S); % initial population for active satellites
+Di=D0*exp(-(R02(2:end)-mu_D).^2/sig_D); % initial population for derelicts
+Ni=N0*exp(-(R02(2:end)-mu_N).^2/sig_N); % initial population for debris
+x0 = [Si(:);Di(:);Ni(:)]; % initial population
+lam_model=lam0*exp(-(R02(2:end)-mu_lam).^2/sig_lam);  % vector of launch rates [objects/year]
+
+phi=pi*sigma*v;
+tf_ss = 1000; % years
+tspan1 = linspace(0,tf_ss,1000);
+[T,X] = ode45(func_3species, tspan1,x0, options_ode,beta,mu,lam_model,Dt,delta,alpha,alpha_active,P,Dhu,Dhl,K0,phi,V,N_shell,R0,R02);
+
+S = X(:,1:N_shell);
+D = X(:,N_shell+1:2*N_shell);
+N = X(:,2*N_shell+1:3*N_shell);
+
+
+%%%%%%%%%%%% ADDITIONAL FUNCTIONS
+
+
+function [X_dot] = func_3species(time,x,beta,mu,lam_model,Dt,delta,alpha,alpha_active,P,Dhu,Dhl,K0,phi,V,N_shell,R0,R02)
+
+%%%%%% INPUT PARAMETERS
+% time = current time instant (not used)
+% x = vector of the variables to propagate (it contains first the active satellite for all shell, then derelicts for all the shells, and then debris for all the shells)
+% mu = earth gravitational parameters [m^3/years^2]
+% lam_model = vector conatining the constant launch rate for each shell
+% Dt = operational lifetime [years] 
+% delta = Ratio of the density of disabling to lethal debris
+% alpha =  fraction of collisions that satellites fail to avoid 
+% alpha_active = fraction of collisions that active satellites fail to avoid with other active satellites 
+% P = Probability of success of post-mission disposal
+% Dhl = thickness of the shell [m]
+% Dhu = -Dhl
+% K0 = matrix containing the number of fragments generated from the collision between the different species
+% phi = Eq. (6) without dividing per V (it is done inside this code for each shell)
+% V = vector containing the volume of each spherical shell [m^3]
+% N_shell = number of shells
+% R0 = vector containing the distance of each shell from the center of the Earth [m]
+% R02 = vector containing the altitudes in [km]
+
+
+%%%%% OUTPUT PARAMETERS
+% X_dot = vector containing the derivatives of each species family [S_dot, D_dot, N_dot]
+%
+%
+
+S = x(1:N_shell);
+D = x(N_shell+1:2*N_shell);
+N = x(2*N_shell+1:3*N_shell);
+
+lam = lam_model;
+
+Eq1 = zeros(N_shell,1);
+Eq2 = zeros(N_shell,1);
+Eq3 = zeros(N_shell,1);
+
+for k=1:N_shell
+
+    if k<N_shell
+        n0=(N(k+1));
+        n_upper=D(k+1);
+        rho_k1 = densityexp(R02(k+1));
+        rvel_upper_D=-rho_k1*beta(2)*sqrt(mu*(R0(k+1)))*(24*3600*365.25);%flux
+        rvel_upper_N=-rho_k1*beta(3)*sqrt(mu*(R0(k+1)))*(24*3600*365.25);%flux
+    else
+        n0=N(k);
+        n_upper=D(k);
+        rhok = densityexp(R02(k));
+    end
+    rvel_current_D=-rhok*beta(2)*sqrt(mu*(R0(k)))*(24*3600*365.25);
+    rvel_current_N=-rhok*beta(3)*sqrt(mu*(R0(k)))*(24*3600*365.25);
+
+    phi_SS = phi(1,1)/V(k);
+    phi_SD = phi(1,2)/V(k);
+    phi_SN = phi(1,3)/V(k);
+    phi_DD = phi(2,2)/V(k);
+    phi_DN = phi(2,3)/V(k);
+    phi_NN = phi(3,3)/V(k);
+    K0_SS = K0(1,1);
+    K0_SD = K0(1,2);
+    K0_SN = K0(1,3);
+    K0_DD = K0(2,2);
+    K0_DN = K0(2,3);
+    K0_NN = K0(3,3);
+
+    Eq1(k)=lam(k)-S(k)/Dt-(delta+alpha)*(phi_SN*N(k)*S(k)+phi_SD*D(k)*S(k))...
+        -alpha_active*phi_SS*S(k)^2;
+
+    Eq2(k)=(1-P)*S(k)/Dt + delta*phi_SD*D(k)*S(k) + delta*phi_SN*S(k)*N(k) - (phi_DN*N(k)*D(k)+phi_DD*D(k)*D(k))...%creation
+        + n_upper*rvel_upper_D/Dhu + D(k)*rvel_current_D/Dhl;%flux
+
+    Eq3(k)=  K0_SN*phi_SN*alpha*N(k)*S(k) + K0_SD*phi_SD*alpha*D(k)*S(k) + ...
+        K0_DN*phi_DN*N(k)*D(k) + K0_DD*phi_DD*D(k)*D(k) + ...
+        alpha_active*K0_SS*phi_SS*S(k)^2 + phi_NN*K0_NN*N(k)^2 + ...
+        n0*rvel_upper_N/Dhu + N(k)*rvel_current_N/Dhl;%flux
+
+end
+
+X_dot = [Eq1;Eq2;Eq3];
+
+end % end of this function
+
+
+function p = densityexp(h)
+%
+% Uses table from pp. 537 (Table 8-4) in Vallado for simple exponential
+% atmospheric density model.
+%
+% Exponential model, U. S. Standard Atmosphere (1976) and CIRA-72
+%
+% h is the height above ellipsoid in km.
+% density p is returned in kg/km^3
+%
+%if (h >= 150)
+%    warning('h is >= 160 km, density calc is broken!');
+%end
+% these numbers for density units of kg/m^3, conversion to kg/km^3 is at
+% the end of the function.
+
+% original by mike shoemaker
+% modified by t. kelecy to use "switch" logic rather than "if-then" 12/20/12
+% modified 12/26/2012 by t. kelecy to "vectorize" computations
+%
+ncol = size(h,2);
+p    = zeros(1,ncol);
+h    = max(h,0);  %  check for h >= 0
+for ii=1:ncol
+    switch 1
+        case (h(ii) >= 0 && h(ii) < 25)
+            h0 = 0; p0 = 1.225; H = 7.249;
+        case (h(ii) >= 25 && h(ii) < 30)
+            h0 = 25; p0 = 3.899e-2; H = 6.349;
+        case (h(ii) >= 30 && h(ii) < 40)
+            h0 = 30; p0 = 1.774e-2; H = 6.682;
+        case (h(ii) >= 40 && h(ii) < 50)
+            h0 = 40; p0 = 3.972e-3; H = 7.554;
+        case (h(ii) >= 50 && h(ii) < 60)
+            h0 = 50; p0 = 1.057e-3; H = 8.382;
+        case (h(ii) >= 60 && h(ii) < 70)
+            h0 = 60; p0 = 3.206e-4; H = 7.714;
+        case (h(ii) >= 70 && h(ii) < 80)
+            h0 = 70; p0 = 8.770e-5; H = 6.549;
+        case (h(ii) >= 80 && h(ii) < 90)
+            h0 = 80; p0 = 1.905e-5; H = 5.799;
+        case (h(ii) >= 90 && h(ii) < 100)
+            h0 = 90; p0 = 3.396e-6; H = 5.382;
+        case (h(ii) >= 100 && h(ii) < 110)
+            h0 = 100; p0 = 5.297e-7; H = 5.877;
+        case (h(ii) >= 110 && h(ii) < 120)
+            h0 = 110; p0 = 9.661e-8; H = 7.263;
+        case (h(ii) >= 120 && h(ii) < 130)
+            h0 = 120; p0 = 2.438e-8; H = 9.473;
+        case (h(ii) >= 130 && h(ii) < 140)
+            h0 = 130; p0 = 8.484e-9; H = 12.636;
+        case (h(ii) >= 140 && h(ii) < 150)
+            h0 = 140; p0 = 3.845e-9; H = 16.149;
+        case (h(ii) >= 150 && h(ii) < 180)
+            h0 = 150; p0 = 2.070e-9; H = 22.523;
+        case (h(ii) >= 180 && h(ii) < 200)
+            h0 = 180; p0 = 5.464e-10; H = 29.740;
+        case (h(ii) >= 200 && h(ii) < 250)
+            h0 = 200; p0 = 2.789e-10; H = 37.105;
+        case (h(ii) >= 250 && h(ii) < 300)
+            h0 = 250; p0 = 7.248e-11; H = 45.546;
+        case (h(ii) >= 300 && h(ii) < 350)
+            h0 = 300; p0 = 2.418e-11; H = 53.628;
+        case (h(ii) >= 350 && h(ii) < 400)
+            h0 = 350; p0 = 9.518e-12; H = 53.298;
+        case (h(ii) >= 400 && h(ii) < 450)
+            h0 = 400; p0 = 3.725e-12; H = 58.515;
+        case (h(ii) >= 450 && h(ii) < 500)
+            h0 = 450; p0 = 1.585e-12; H = 60.828;
+        case (h(ii) >= 500 && h(ii) < 600)
+            h0 = 500; p0 = 6.967e-13; H = 63.822;
+        case (h(ii) >= 600 && h(ii) < 700)
+            h0 = 600; p0 = 1.454e-13; H = 71.835;
+        case (h(ii) >= 700 && h(ii) < 800)
+            h0 = 700; p0 = 3.614e-14; H = 88.667;
+        case (h(ii) >= 800 && h(ii) < 900)
+            h0 = 800; p0 = 1.170e-14; H = 124.64;
+        case (h(ii) >= 900 && h(ii) < 1000)
+            h0 = 900; p0 = 5.245e-15; H = 181.05;
+        case (h(ii) >= 1000 )
+            h0 = 1000; p0 = 3.019e-15; H = 268.00;
+        otherwise
+            error('h = %f',h(ii));
+    end  %  switch 1
+        
+    p(ii) = p0 * exp((h0-h(ii))/H);
+    
+end  %  for ii=1:ncol
+    
+p = p ;% *1000^3 to convert density to kg/km^3
+    
+end  %  end of this function

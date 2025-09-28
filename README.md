@@ -1,97 +1,119 @@
-# README — pyssem-v2
+# pySSEM - Source Sink Evolutionary Model
 
-## Overview
-This repository implements a **stochastic compartment model** for Low Earth Orbit (LEO) populations — **satellites, derelicts, and debris**.  
+**This is still at pre-alpha stage, the model is still actively being developed and tested. Please do not rely on results.**
 
-Two primary solvers are included:  
-- **Euler–Maruyama (SDE, “EM”) solver**: stochastic approximation of the Markov Jump Process.  
-- **Discrete-Event Simulation (DES)**: event-driven simulation of collisions, drag, launches, and post-mission disposal.  
+## Description
 
-In both approaches, the **ODE drift** provides the deterministic backbone and is embedded as the first stage of the solver.  
+pySSEM is a tool that investigates the evolution of the space objects population in Low Earth Orbit (LEO) by exploiting a new probabilistic source-sink model. The objective is to estimate the LEO orbital capacity. This is carried out through the long-term propagation of the proposed source-sink model, which globally takes into account different object species, such as active satellites, derelict satellites, debris, and additional subgroups. Since the Space Objects (SOs) are propagated as species, the information about single objects is missing, but it allows the model to be computationally fast and provide essential information about the projected future distribution of SOs in the space environment for long prediction horizons.
 
-Theoretical derivations and mid-stage results are summarized in the accompanying files:  
-- *LEO_slides_20250826.pdf*  
-- *Report_LEO_Draft2.pdf*  
+## Installation
 
----
+Ensure that you have a Python version above 3.8 before running the package. 
 
-## Repository Layout
+Download the python package using pip (currently Test Environment) and install the required packages:
 
-```
-pyssem/
-├─ Simulations_EM.ipynb                 # Main notebook: runs EM (SDE) simulations
-├─ Simultations_DiscreteEvent.ipynb     # Main notebook: runs DES (helper funcs in notebook)
-├─ model.py                             # Model facade: builds ScenarioProperties, plotting helpers
-├─ example-purdue.json                  # Example scenario config (time horizon, shells, species, etc.)
-├─ figures                              # Resulting Figures
-├─ frames                               # Contains frames for making figures
-├─ utils/
-│  ├─ simulation/
-│  │  ├─ scen_properties.py             # Implements ODE drift, Euler–Maruyama
-│  │  ├─ species.py                     # Species definitions, symbols/vectors
-│  │  ├─ species_pair_class.py          # Collision pair structure
-│  │  └─ __init__.py
-│  ├─ collisions/
-│  │  └─ collisions.py                  # Collision kernels, fragment sizing, pair creation
-│  ├─ drag/
-│  │  └─ drag.py                        # Atmospheric density models (static/JB2008), drag terms
-│  ├─ launch/
-│  │  ├─ launch.py                      # Launch models (constant/ADEPT-like), init helpers
-│  │  └─ data/
-│  ├─ pmd/
-│  │  └─ pmd.py                         # Post-Mission Disposal terms
-│  └─ handlers/
-│     └─ handlers.py                    
-└─ .idea/ …                             
+```bash
+pip install -i https://test.pypi.org/simple/ pyssem==1.0
+pip install -r requirements.txt
 ```
 
----
+To create a Model you need the following properties:
+```json
+"scenario_properties": {
+    "start_date": "01/03/2022",   
+    "simulation_duration": 100,              
+    "steps": 200,                            
+    "min_altitude": 200,                   
+    "max_altitude": 1400,                   
+    "n_shells": 40,                         
+    "launch_function": "Constant", 
+    "integrator": "BDF",                
+    "density_model": "static_exp_dens_func", 
+    "LC": 0.1,                             
+    "v_imp": 10.0                          
+  }
+```
 
-## Core Modules
+Species are defined as a separate "species" list within your json. Each item is a new species type, each species can have multiple lengths (see documentation for more information). 
+```json
+"species": {
+    "S": {
+      "sym_name": "S",
+      "Cd": 2.2,
+      "mass": [1250, 750, 148],
+      "radius": [4, 2, 0.5],
+      "A": "Calculated based on radius",
+      "active": true,
+      "maneuverable": true,
+      "trackable": true,
+      "deltat": [8],
+      "Pm": 0.90,
+      "alpha": 1e-5,
+      "alpha_active": 1e-5,
+      "slotted": true, 
+      "slotting_effectiveness": 1.0,
+      "drag_effected": false,
+      "launch_func": "launch_func_constant",
+      "pmd_func": "pmd_func_sat",
+      "drag_func": "drag_func_exp"
+  },
+  "Su": {
+      "sym_name": "Su",
+      "Cd": 2.2,
+      "mass": [260, 473],
+      "A": [1.6652, 13.5615],
+      "radius": [0.728045069, 2.077681285],
+      "active": true,
+      "maneuverable": true,
+      "trackable": true,
+      "deltat": [8, 8],
+      "Pm": 0.65,
+      "alpha": 1e-5,
+      "alpha_active": 1e-5,
+      "RBflag": 0,
+      "slotting_effectiveness": 1.0,
+      "drag_effected": false,
+      "launch_func": "launch_func_constant",
+      "pmd_func": "pmd_func_sat",
+      "drag_func": "drag_func_exp"
+  }
+```
 
-### Main Notebooks
-- **Simulations_EM.ipynb** — Runs Euler–Maruyama (SDE) simulations.  
-- **Simultations_DiscreteEvent.ipynb** — Runs Discrete-Event Simulations (DES). 
+An example of running the simulation:
+```python
+from pyssem.model import Model
+import json
+import os
 
-### Core Scripts
-- **model.py** — Loads scenario configuration, builds `ScenarioProperties`, and provides plotting utilities.  
-- **example-purdue.json** — Example scenario configuration (time horizon, shell setup, parameters).  
+# Load simulation configuration
+with open('/path/to/example-sim-simple.json') as f:
+  simulation_data = json.load(f)
 
-### `utils/simulation/`
-- **scen_properties.py** — Defines `ScenarioProperties`.  
-  - Core state container for time, shells, and species.  
-  - Implements ODE drift, Euler–Maruyama integration, and scenario-level simulation control.  
-- **species.py** — Defines parameters for each species, initial states.  
-- **species_pair_class.py** — Encodes species-pair interactions (e.g., SS, SD, SN). Stores impact parameter, relative velocity, and collision type metadata.  
+scenario_props = simulation_data['scenario_properties']
 
-### `utils/collisions/`
-- **collisions.py** — Collision kernel. Computes interaction rates, splits lethal/disable components, and applies fragment generation formulas for catastrophic vs. non-catastrophic events.  
+# Create an instance of the Model with the simulation parameters
+model = Model(
+    start_date=scenario_props["start_date"].split("T")[0],  # Assuming date is in ISO format
+    simulation_duration=scenario_props["simulation_duration"],
+    steps=scenario_props["steps"],
+    min_altitude=scenario_props["min_altitude"],
+    max_altitude=scenario_props["max_altitude"],
+    n_shells=scenario_props["n_shells"],
+    launch_function=scenario_props["launch_function"],
+    integrator=scenario_props["integrator"],
+    density_model=scenario_props["density_model"],
+    LC=scenario_props["LC"],
+    v_imp=scenario_props["v_imp"],
+    launchfile='path/to/launchfile.csv'
+)
 
-### `utils/drag/`
-- **drag.py** — Atmospheric drag model. Calculates outflow (to lower shells) and inflow (from upper shells).  
+species = simulation_data["species"]
+species_list = model.configure_species(species)
 
-### `utils/launch/`
-- **launch.py** — Launch processes. Defines constant and scenario-based **launch rates** and **initial populations**
-### `utils/pmd/`
-- **pmd.py** — Post-Mission Disposal (PMD). Defines removal rates for satellites and derelicts, modeled as delayed exponential processes.  
+# Run the model
+results = model.run_model()
+```
 
----
 
-## How to Use
 
-1. **Configure a scenario**  
-   Adjust `example-purdue.json` to set duration, shell size, species parameters, and functions (launch, drag, PMD).  
 
-2. **Run simulations**  
-   - Open **Simulations_EM.ipynb** to generate stochastic (SDE) sample paths.  
-   - Open **Simultations_DiscreteEvent.ipynb** to run event-driven simulations.  
-
-3. **View results**  
-   - Plots are stored in `figures/`
-
----
-
-## Notes
-- The EM (SDE) solver and DES are the main focus of this code.  
-- The ODE solver is embedded within both solvers as the deterministic first step.  
-- Launch rates are parameterized; time-dependent rates is still under work.  
