@@ -12,7 +12,7 @@ In both approaches, the **ODE drift** provides the deterministic backbone and is
 
 Theoretical derivations and mid-stage results are summarized in the accompanying files:  
 - *LEO_slides_20250826.pdf*  
-- *Report_LEO_Draft2.pdf*  
+- *Report_LEO_20250731.pdf*  
 
 ---
 
