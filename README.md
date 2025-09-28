@@ -15,7 +15,7 @@ Theoretical derivations and mid-stage results are summarized in the accompanying
 
 ---
 
-## Repository Layout (actual contents)
+## Repository Layout
 
 ```
 pyssem/
@@ -23,6 +23,8 @@ pyssem/
 ├─ Simultations_DiscreteEvent.ipynb     # Main notebook: runs DES (helper funcs in notebook)
 ├─ model.py                             # Model facade: builds ScenarioProperties, plotting helpers
 ├─ example-purdue.json                  # Example scenario config (time horizon, shells, species, etc.)
+├─ figures                              # Resulting Figures
+├─ frames                               # Contains frames for making figures
 ├─ utils/
 │  ├─ simulation/
 │  │  ├─ scen_properties.py             # Implements ODE drift, Euler–Maruyama
@@ -45,7 +47,7 @@ pyssem/
 
 ---
 
-## Core Modules (by category)
+## Core Modules
 
 ### Main Notebooks
 - **Simulations_EM.ipynb** — Runs Euler–Maruyama (SDE) simulations.  
@@ -59,47 +61,37 @@ pyssem/
 - **scen_properties.py** — Defines `ScenarioProperties`.  
   - Core state container for time, shells, and species.  
   - Implements ODE drift, Euler–Maruyama integration, and scenario-level simulation control.  
-- **species.py** — Defines parameters for each species (satellite, derelict, debris), including radii, avoidance/disable ratios, drag/PMD flags, and initial states.  
+- **species.py** — Defines parameters for each species, initial states.  
 - **species_pair_class.py** — Encodes species-pair interactions (e.g., SS, SD, SN). Stores impact parameter, relative velocity, and collision type metadata.  
 
 ### `utils/collisions/`
 - **collisions.py** — Collision kernel. Computes interaction rates, splits lethal/disable components, and applies fragment generation formulas for catastrophic vs. non-catastrophic events.  
 
 ### `utils/drag/`
-- **drag.py** — Atmospheric drag model. Provides simple exponential or JB2008 density models. Calculates outflow (to lower shells) and inflow (from upper shells).  
+- **drag.py** — Atmospheric drag model. Calculates outflow (to lower shells) and inflow (from upper shells).  
 
 ### `utils/launch/`
-- **launch.py** — Launch processes. Defines constant and scenario-based launch rates. Includes helpers for initial conditions (`x0`) and CSV loaders.  
-- **data/** — Example initialization and launch CSV files.  
-
+- **launch.py** — Launch processes. Defines constant and scenario-based **launch rates** and **initial populations**
 ### `utils/pmd/`
 - **pmd.py** — Post-Mission Disposal (PMD). Defines removal rates for satellites and derelicts, modeled as delayed exponential processes.  
-
-### `utils/handlers/`
-- **handlers.py** — I/O helpers for scenario loading, downloads, and file management.  
 
 ---
 
 ## How to Use
 
-1. **Environment**  
-   Python ≥ 3.9, with standard scientific libraries (`numpy`, `scipy`, `pandas`, `matplotlib`, `sympy`).  
-
-2. **Configure a scenario**  
+1. **Configure a scenario**  
    Adjust `example-purdue.json` to set duration, shell size, species parameters, and functions (launch, drag, PMD).  
 
-3. **Run simulations**  
+2. **Run simulations**  
    - Open **Simulations_EM.ipynb** to generate stochastic (SDE) sample paths.  
    - Open **Simultations_DiscreteEvent.ipynb** to run event-driven simulations.  
 
-4. **View results**  
-   - Plots are produced with `model.py` utilities.  
-   - Outputs include species evolution by shell and solver comparisons (ODE vs. SDE vs. DES).  
+3. **View results**  
+   - Plots are stored in `figures/`
 
 ---
 
 ## Notes
-- The EM (SDE) solver and DES are the **main focus** of this code.  
+- The EM (SDE) solver and DES are the main focus of this code.  
 - The ODE solver is embedded within both solvers as the deterministic first step.  
-- DES helper functions (`run_des`, event rate updates) are currently defined inside the notebook, not as a separate module.  
-- Launch rates are parameterized; mapping real-world capacity milestones to time-dependent rates is still under study.  
+- Launch rates are parameterized; time-dependent rates is still under work.  
